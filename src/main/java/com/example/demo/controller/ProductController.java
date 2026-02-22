@@ -5,13 +5,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -19,17 +20,23 @@ import com.example.demo.dto.ProductRequest;
 import com.example.demo.entity.ProductEntity;
 import com.example.demo.repository.ProductRepository;
 import com.example.demo.service.CreateOutPutCSV;
+import com.example.demo.util.DownloadUtil;
 
 @RestController
-public class HelloController {
+@RequestMapping("/product")
+public class ProductController {
 	
-	@Autowired
-	ProductRepository productRepository;
+	private final ProductRepository _productRepository;
+	private final CreateOutPutCSV _createOutPutCSV;
 	
-	@Autowired
-	CreateOutPutCSV createOutPutCSV;
+	public ProductController(ProductRepository productRepository,
+			CreateOutPutCSV createOutPutCSV) {
+				this._productRepository = productRepository;
+				this._createOutPutCSV = createOutPutCSV;
+		
+	}
 	
-	@GetMapping("/api/hello")
+	@GetMapping("/test")
 	public Map<String, String> hello() {
 		// Mapを返すと、Springが勝手に {"message": "Hello World", "status": "success"} というJSONにしてくれます！
 		return Map.of(
@@ -43,7 +50,7 @@ public class HelloController {
 	 * @param id
 	 * @return
 	 */
-	@GetMapping("/api/hello/{id}")
+	@GetMapping("/test/{id}")
 	public Map<String, Object> getPassParameterId(@PathVariable Long id) {
 		return Map.of(
 			"message", id,
@@ -57,7 +64,7 @@ public class HelloController {
 	 * @param pass
 	 * @return
 	 */
-	@GetMapping("/api/hello/user")
+	@GetMapping("/accsess/user")
 	public Map<String, Object> getPassParameter(@RequestParam String name, @RequestParam String pass) { 
 		return Map.of(
 			"message", Map.of("UserName", name, "Password", pass),
@@ -65,15 +72,13 @@ public class HelloController {
 		);
 	}
 	
-
-	
 	/**
 	 * 商品一覧取得
 	 * @return
 	 */
-	@GetMapping("/api/hello/getProductsInfo")
+	@GetMapping("/getProductsInfo")
 	public List<ProductEntity> getProducts(){
-		return productRepository.findAll();
+		return _productRepository.findAll();
 	}
 	
 	/**
@@ -81,9 +86,9 @@ public class HelloController {
 	 * @param id
 	 * @return
 	 */
-	@GetMapping("/api/hello/getProductInfo/{id}")
+	@GetMapping("/getProductInfo/{id}")
 	public Optional<ProductEntity> getProduct(@PathVariable Long id){
-		return productRepository.findById(id);
+		return _productRepository.findById(id);
 	}
 	
 	/**
@@ -91,9 +96,20 @@ public class HelloController {
 	 * @param id
 	 * @return
 	 */
-	@GetMapping("/api/hello/outPutCSV/ProductInfoAll")
+	@GetMapping("/outPutCSV/ProductInfoAll")
 	public ResponseEntity<byte[]> outProductsCSV(){
-		return createOutPutCSV.outputCsv(productRepository.findAll());
+		return outputCSV(_productRepository.findAll());
+	}
+	
+	/**
+	 * あいまい検索
+	 * @param keyword
+	 * @return
+	 */
+	@GetMapping("/Like")
+	public ResponseEntity<List<ProductEntity>> getKeywordSerch(@RequestParam("keyword") String keyword){
+		List<ProductEntity> serch = _productRepository.findByNameContaining(keyword);
+		return ResponseEntity.ok(serch);
 	}
 	
 	/**
@@ -101,17 +117,15 @@ public class HelloController {
 	 * @param id
 	 * @return
 	 */
-	@PostMapping("/api/hello/outPutCSV/ProductInfo")
+	@PostMapping("/outPutCSV/ProductInfo")
 	public ResponseEntity<byte[]> outProductCSV(@RequestBody List<ProductEntity> products){
-		// 1. リクエストから「IDのリスト」だけを抽出する
 	    List<Long> ids = new ArrayList<>();
 	    for (ProductEntity p : products) {
 	        ids.add(p.getId());
 	    }
 	    
-	    // 2. 「findAllById」を使って、DBから一括で検索してリストにする！（for文で毎回検索しない）
-	    List<ProductEntity> productsList = productRepository.findAllById(ids);
-		return createOutPutCSV.outputCsv(productsList);
+	    List<ProductEntity> productsList = _productRepository.findAllById(ids);
+		return outputCSV(productsList);
 	}
 	
 	
@@ -120,13 +134,13 @@ public class HelloController {
 	 * @param id
 	 * @return
 	 */
-	@PostMapping("/api/hello/editProductInfo")
+	@PostMapping("/editProductInfo")
 	public ResponseEntity<ProductEntity> editProduct(@RequestBody ProductEntity productEntity) {
 	    // IDが存在するかチェック（安全策）
-	    if (productEntity.getId() == null || !productRepository.existsById(productEntity.getId())) {
+	    if (productEntity.getId() == null || !_productRepository.existsById(productEntity.getId())) {
 	        return ResponseEntity.notFound().build(); // 404を返す
 	    }
-	    ProductEntity saved = productRepository.save(productEntity);
+	    ProductEntity saved = _productRepository.save(productEntity);
 	    return ResponseEntity.ok(saved); // 200 OK と一緒に保存結果を返す
 	}
 	
@@ -135,7 +149,7 @@ public class HelloController {
 	 * @param entity
 	 * @return
 	 */
-	@PostMapping("/api/hello/getProductInfo")
+	@PostMapping("/getProductInfo")
 	public Map<String, Object> getBodyParameter(@RequestBody ProductRequest req){
 		return Map.of(
 				"message", Map.of("ProductName", req.getName(), "ProductPrice", req.getPrice()),
@@ -148,9 +162,9 @@ public class HelloController {
 	 * @param productEntity
 	 * @return
 	 */
-	@PostMapping("/api/hello/saveProductInfo")
-	public ProductEntity createProduct(@RequestBody ProductEntity productEntity){
-		return productRepository.save(productEntity);
+	@PostMapping("/insertProduct")
+	public ProductEntity createProduct(@Validated @RequestBody ProductEntity productEntity){
+		return _productRepository.save(productEntity);
 	}
 	
 	/**
@@ -158,18 +172,15 @@ public class HelloController {
 	 * @param id
 	 * @return
 	 */
-	@DeleteMapping("/api/hello/deleteProductInfo/{id}") // Deleteを使う
+	@DeleteMapping("/deleteProductInfo/{id}") // Deleteを使う
 	public ResponseEntity<Void> deleteProduct(@PathVariable Long id) {
 	    
-	    // 1. 存在確認
-	    if (!productRepository.existsById(id)) {
+	    if (!_productRepository.existsById(id)) {
 	        return ResponseEntity.notFound().build(); // なければ404
 	    }
 	    
-	    // 2. 削除実行
 	    try {
-	        productRepository.deleteById(id);
-	        // 3. 成功時は「204 No Content（成功したけど返す中身はないよ）」または「200 OK」
+	    	_productRepository.deleteById(id);
 	        return ResponseEntity.noContent().build(); 
 	    } catch (Exception e) {
 	        // 何らかの理由で失敗したら500エラー
@@ -177,5 +188,14 @@ public class HelloController {
 	    }
 	}
 	
+	/**
+	 * CSV出力メソッド
+	 * @param products
+	 * @return
+	 */
+	private ResponseEntity<byte[]> outputCSV(List<ProductEntity> products) {
+		byte[] csvByte = _createOutPutCSV.outputProductCsv(products);
+		return DownloadUtil.fileDownloadResponse(csvByte, "ProductCSV.csv", "text/csv; charset=UTF-8");
+	}
 	
 }
