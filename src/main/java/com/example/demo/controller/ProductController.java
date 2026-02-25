@@ -5,12 +5,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import jakarta.persistence.EntityNotFoundException;
+
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -18,8 +24,11 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.example.demo.dto.ProductRequest;
 import com.example.demo.entity.ProductEntity;
+import com.example.demo.entity.UserEntity;
 import com.example.demo.repository.ProductRepository;
+import com.example.demo.repository.UserRepository;
 import com.example.demo.service.CreateOutPutCSV;
+import com.example.demo.service.ProductService;
 import com.example.demo.util.DownloadUtil;
 
 @RestController
@@ -28,17 +37,22 @@ public class ProductController {
 	
 	private final ProductRepository _productRepository;
 	private final CreateOutPutCSV _createOutPutCSV;
+	private final UserRepository _userRepository;
+	private final ProductService _productService;
 	
-	public ProductController(ProductRepository productRepository,
-			CreateOutPutCSV createOutPutCSV) {
+	public ProductController(
+			ProductRepository productRepository,
+			UserRepository userRepository,
+			CreateOutPutCSV createOutPutCSV,
+			ProductService productService) {
 				this._productRepository = productRepository;
+				this._userRepository = userRepository;
 				this._createOutPutCSV = createOutPutCSV;
-		
-	}
+				this._productService = productService;
+				}
 	
 	@GetMapping("/test")
 	public Map<String, String> hello() {
-		// Mapを返すと、Springが勝手に {"message": "Hello World", "status": "success"} というJSONにしてくれます！
 		return Map.of(
 			"message", "Hello World",
 			"status", "success"
@@ -134,14 +148,18 @@ public class ProductController {
 	 * @param id
 	 * @return
 	 */
-	@PostMapping("/editProductInfo")
-	public ResponseEntity<ProductEntity> editProduct(@RequestBody ProductEntity productEntity) {
-	    // IDが存在するかチェック（安全策）
-	    if (productEntity.getId() == null || !_productRepository.existsById(productEntity.getId())) {
-	        return ResponseEntity.notFound().build(); // 404を返す
-	    }
-	    ProductEntity saved = _productRepository.save(productEntity);
-	    return ResponseEntity.ok(saved); // 200 OK と一緒に保存結果を返す
+	@PutMapping("/editProductInfo") 
+	public ResponseEntity<ProductEntity> editProduct(
+			@RequestBody ProductEntity productEntity,
+			Authentication authentication) {
+		try {
+			ProductEntity entity = _productService.updateProduct(productEntity, authentication.getName());
+			return ResponseEntity.ok(entity);
+		} catch (EntityNotFoundException e) {
+            return ResponseEntity.notFound().build(); // 404
+        } catch (AccessDeniedException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build(); // 403
+        }
 	}
 	
 	/**
@@ -163,7 +181,20 @@ public class ProductController {
 	 * @return
 	 */
 	@PostMapping("/insertProduct")
-	public ProductEntity createProduct(@Validated @RequestBody ProductEntity productEntity){
+	public ProductEntity createProduct(
+			@Validated @RequestBody 
+			ProductEntity productEntity,
+			Authentication authentication){
+		
+		// 1. ログイン中のユーザー（トークンの持ち主）の名前を取得
+        String username = authentication.getName();
+        
+        // 2. DBからそのユーザーのEntityを取得
+        UserEntity loginUser = _userRepository.findByUsername(username);
+        
+        // 3. 登録しようとしている商品に、「登録者」としてセットする
+        productEntity.setUser(loginUser);
+		
 		return _productRepository.save(productEntity);
 	}
 	
@@ -172,18 +203,29 @@ public class ProductController {
 	 * @param id
 	 * @return
 	 */
-	@DeleteMapping("/deleteProductInfo/{id}") // Deleteを使う
-	public ResponseEntity<Void> deleteProduct(@PathVariable Long id) {
+	@DeleteMapping("/deleteProductInfo/{id}") 
+	public ResponseEntity<Void> deleteProduct(@PathVariable Long id, Authentication authentication) {
 	    
-	    if (!_productRepository.existsById(id)) {
+	    Optional<ProductEntity> productOpt = _productRepository.findById(id);
+	    
+	    if (productOpt.isEmpty()) {
 	        return ResponseEntity.notFound().build(); // なければ404
 	    }
 	    
 	    try {
-	    	_productRepository.deleteById(id);
-	        return ResponseEntity.noContent().build(); 
+	    	ProductEntity existingProduct = productOpt.get();
+	    	String userName = existingProduct.getUser().getUsername();
+	    	
+	    	// 所有者チェック（.equals を使う！）
+	    	if(userName.equals(authentication.getName())) {
+	    		_productRepository.deleteById(id);
+		        return ResponseEntity.noContent().build(); 
+	    	} else {
+	    		// 他人の商品は 403 Forbidden で弾く！
+	    		return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+	    	}
+	    	
 	    } catch (Exception e) {
-	        // 何らかの理由で失敗したら500エラー
 	        return ResponseEntity.internalServerError().build();
 	    }
 	}
