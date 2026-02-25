@@ -205,29 +205,18 @@ public class ProductController {
 	 */
 	@DeleteMapping("/deleteProductInfo/{id}") 
 	public ResponseEntity<Void> deleteProduct(@PathVariable Long id, Authentication authentication) {
-	    
-	    Optional<ProductEntity> productOpt = _productRepository.findById(id);
-	    
-	    if (productOpt.isEmpty()) {
-	        return ResponseEntity.notFound().build(); // なければ404
-	    }
-	    
-	    try {
-	    	ProductEntity existingProduct = productOpt.get();
-	    	String userName = existingProduct.getUser().getUsername();
-	    	
-	    	// 所有者チェック（.equals を使う！）
-	    	if(userName.equals(authentication.getName())) {
-	    		_productRepository.deleteById(id);
-		        return ResponseEntity.noContent().build(); 
-	    	} else {
-	    		// 他人の商品は 403 Forbidden で弾く！
-	    		return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-	    	}
-	    	
-	    } catch (Exception e) {
-	        return ResponseEntity.internalServerError().build();
-	    }
+		try {
+            // 実際の削除処理はServiceに丸投げ！
+            _productService.deleteProduct(id, authentication.getName());
+            return ResponseEntity.noContent().build(); // 204 No Content（成功）
+            
+        } catch (EntityNotFoundException e) {
+            return ResponseEntity.notFound().build(); // 404
+        } catch (AccessDeniedException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build(); // 403
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().build(); // 500
+        }
 	}
 	
 	/**
