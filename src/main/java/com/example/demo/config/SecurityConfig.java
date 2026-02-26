@@ -36,7 +36,7 @@ public class SecurityConfig {
             	    .requestMatchers("/api/product/**").hasAnyRole("USER", "ADMIN")
             	    .anyRequest().authenticated()
             	)
-            	// ↓ これが抜けていませんか？
+
             	.addFilterBefore(new JwtAuthenticationFilter(_jwtUtil,_userRepository), UsernamePasswordAuthenticationFilter.class);
         http.headers(headers -> headers.frameOptions(frame -> frame.sameOrigin()));
         return http.build();
